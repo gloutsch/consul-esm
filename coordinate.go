@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -98,9 +100,13 @@ func (a *Agent) runNodePing(node *api.Node) {
 		a.logger.Error("could not get critical status for node", "node", node.Node, "error", err)
 	}
 
-	// Run an ICMP ping to the node.
-	rtt, err := pingNode(node.Address, a.config.PingType)
-
+	// Run a ping to the node.
+	var rtt time.Duration
+	if pingType, ok := node.Meta["ping-type"]; ok {
+		rtt, err = pingNode(node.Address, pingType)
+	} else {
+		rtt, err = pingNode(node.Address, a.config.PingType)
+	}
 	// Update the node's health based on the results of the ping.
 	if err == nil {
 		if err := a.updateHealthyNode(node, kvClient, key, kvPair); err != nil {
@@ -383,6 +389,17 @@ func (a *Agent) updateNodeCoordinate(node *api.Node, rtt time.Duration) error {
 	return nil
 }
 
+func pingNodeTCP(addr string, port int) (time.Duration, error) {
+	start := time.Now()
+	conn, err := net.Dial("tcp", strings.Join([]string{addr, fmt.Sprintf("%d", port)}, `:`))
+	if err != nil {
+		return 0, fmt.Errorf("cannot establish tcp connection %q", err)
+	}
+	elapsed := time.Since(start)
+	_ = conn.Close()
+	return elapsed, nil
+}
+
 // pingNode runs an ICMP or UDP ping against an address.
 // It will returns the round-trip time with ICMP but not with UDP.
 // For `socket: permission denied` see the Contributing section in README.md.
@@ -395,10 +412,17 @@ func pingNode(addr string, method string) (time.Duration, error) {
 		return 0, err
 	}
 
-	switch method {
-	case PingTypeUDP: // p's default
-	case PingTypeSocket:
+	switch {
+	case method == PingTypeUDP: // p's default
+	case method == PingTypeSocket:
 		p.SetPrivileged(true)
+	case strings.HasPrefix(strings.ToLower(method), "tcp:"):
+		tcp := strings.SplitN(method, `:`, 2)
+		port, err := strconv.Atoi(tcp[1])
+		if err != nil || port > 65535 {
+			return 0, fmt.Errorf("invalid tcp port %q", method)
+		}
+		return pingNodeTCP(addr, port)
 	default:
 		return 0, fmt.Errorf("invalid ping type %q", method)
 	}
