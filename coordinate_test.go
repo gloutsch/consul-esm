@@ -1,6 +1,9 @@
 package main
 
 import (
+	"os"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -291,6 +294,25 @@ func TestCoordinate_parallelPings(t *testing.T) {
 		}
 		_, err := client.Catalog().Register(&api.CatalogRegistration{
 			Node:       nodeName,
+			Address:    "127.0.0.1",
+			Datacenter: "dc1",
+			NodeMeta:   meta,
+		}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Register 3 nodes to be TCP checked
+	tcp_nodes := map[string]int{"node7": s.Config.Ports.HTTP, "node8": s.Config.Ports.SerfLan, "node9": s.Config.Ports.DNS}
+	for node, port := range tcp_nodes {
+		meta := map[string]string{
+			"external-node":  "true",
+			"external-probe": "true",
+			"ping-type":      strings.Join([]string{"tcp", strconv.Itoa(port)}, `:`),
+		}
+		_, err := client.Catalog().Register(&api.CatalogRegistration{
+			Node:       node,
 			Address:    "127.0.0.1",
 			Datacenter: "dc1",
 			NodeMeta:   meta,
