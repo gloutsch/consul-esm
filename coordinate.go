@@ -103,7 +103,7 @@ func (a *Agent) runNodePing(node *api.Node) {
 	// Run a ping to the node.
 	var rtt time.Duration
 	if pingType, ok := node.Meta["ping-type"]; ok {
-		rtt, err = pingNode(node.Address, pingType)
+		rtt, err = pingNodeCustom(node.Address, pingType)
 	} else {
 		rtt, err = pingNode(node.Address, a.config.PingType)
 	}
@@ -389,17 +389,6 @@ func (a *Agent) updateNodeCoordinate(node *api.Node, rtt time.Duration) error {
 	return nil
 }
 
-func pingNodeTCP(addr string, port int) (time.Duration, error) {
-	start := time.Now()
-	conn, err := net.Dial("tcp", strings.Join([]string{addr, fmt.Sprintf("%d", port)}, `:`))
-	if err != nil {
-		return 0, fmt.Errorf("cannot establish tcp connection %q", err)
-	}
-	elapsed := time.Since(start)
-	_ = conn.Close()
-	return elapsed, nil
-}
-
 // pingNode runs an ICMP or UDP ping against an address.
 // It will returns the round-trip time with ICMP but not with UDP.
 // For `socket: permission denied` see the Contributing section in README.md.
@@ -476,4 +465,37 @@ func (a *Agent) checkNodeTracking(inCh nodeChannel) nodeChannel {
 		}
 	}()
 	return outCh
+}
+
+// pingNodeCustom check the ping-type in node metadata
+func pingNodeCustom(addr string, method string) (time.Duration, error) {
+	switch {
+	case strings.HasPrefix(strings.ToLower(method), PingTypeTCP):
+		tcp := strings.SplitN(method, `:`, 2)
+		port, err := strconv.ParseUint(tcp[1], 10, 16) // ensure 0 <= port <= 65535
+		if err != nil {
+			return 0, fmt.Errorf("invalid tcp port %q", method)
+		}
+		return pingNodeTCP(addr, uint16(port))
+	case strings.ToLower(method) == PingTypeUDP:
+		return pingNode(addr, PingTypeUDP)
+	case strings.ToLower(method) == PingTypeSocket || strings.ToLower(method) == "icmp":
+		return pingNode(addr, PingTypeSocket)
+	default:
+		return pingNode(addr, method)
+	}
+}
+
+// pingNodeCustom runs a TCP handshake against an address.
+// It will returns the round-trip time for establishing connection
+func pingNodeTCP(addr string, port uint16) (time.Duration, error) {
+	var tcp_timeout time.Duration = 2 * time.Second
+	start := time.Now()
+	conn, err := net.DialTimeout("tcp", strings.Join([]string{addr, fmt.Sprintf("%d", port)}, `:`), tcp_timeout)
+	if err != nil {
+		return 0, fmt.Errorf("cannot establish tcp connection %q", err)
+	}
+	elapsed := time.Since(start)
+	conn.Close()
+	return elapsed, nil
 }
