@@ -405,13 +405,6 @@ func pingNode(addr string, method string) (time.Duration, error) {
 	case method == PingTypeUDP: // p's default
 	case method == PingTypeSocket:
 		p.SetPrivileged(true)
-	case strings.HasPrefix(strings.ToLower(method), "tcp:"):
-		tcp := strings.SplitN(method, `:`, 2)
-		port, err := strconv.Atoi(tcp[1])
-		if err != nil || port > 65535 {
-			return 0, fmt.Errorf("invalid tcp port %q", method)
-		}
-		return pingNodeTCP(addr, port)
 	default:
 		return 0, fmt.Errorf("invalid ping type %q", method)
 	}
